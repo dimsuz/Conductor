@@ -28,6 +28,7 @@ public class PagerController extends BaseController {
     private final RouterPagerAdapter pagerAdapter;
 
     public PagerController() {
+        setRetainViewMode(RetainViewMode.RETAIN_DETACH);
         pagerAdapter = new RouterPagerAdapter(this) {
             @Override
             public void configureRouter(@NonNull Router router, int position) {

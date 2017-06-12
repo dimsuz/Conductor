@@ -3,11 +3,14 @@ package com.bluelinelabs.conductor.demo.controllers;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v4.content.ContextCompat;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import com.bluelinelabs.conductor.RouterTransaction;
+import com.bluelinelabs.conductor.changehandler.VerticalChangeHandler;
 import com.bluelinelabs.conductor.demo.R;
 import com.bluelinelabs.conductor.demo.controllers.base.BaseController;
 import com.bluelinelabs.conductor.demo.util.BundleBuilder;
@@ -40,11 +43,48 @@ public class ChildController extends BaseController {
         return inflater.inflate(R.layout.controller_child, container, false);
     }
 
+    private String getLogTag() {
+        return "Child Controller " + getArgs().getString(KEY_TITLE);
+    }
+
+    @NonNull
+    @Override
+    protected View onCreateView(@NonNull LayoutInflater inflater, @NonNull ViewGroup container) {
+        Log.d(getLogTag(), "onCreateView()");
+        return super.onCreateView(inflater, container);
+    }
+
+    @Override
+    protected void onAttach(@NonNull View view) {
+        super.onAttach(view);
+        Log.d(getLogTag(), "onAttach()");
+    }
+
+    @Override
+    protected void onDetach(@NonNull View view) {
+        super.onDetach(view);
+        Log.d(getLogTag(), "onDetach()");
+    }
+
+    @Override
+    protected void onDestroyView(@NonNull View view) {
+        super.onDestroyView(view);
+        Log.d(getLogTag(), "onDestroyView()");
+    }
+
     @Override
     protected void onViewBound(@NonNull View view) {
         super.onViewBound(view);
 
         tvTitle.setText(getArgs().getString(KEY_TITLE));
+        tvTitle.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                RouterTransaction transaction = RouterTransaction.with(new TextController("Hello"))
+                        .pushChangeHandler(new VerticalChangeHandler());
+                getParentController().getRouter().pushController(transaction);
+            }
+        });
 
         int bgColor = getArgs().getInt(KEY_BG_COLOR);
         if (getArgs().getBoolean(KEY_COLOR_IS_RES)) {
