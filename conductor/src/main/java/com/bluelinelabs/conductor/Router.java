@@ -399,22 +399,25 @@ public abstract class Router {
     public void setBackstack(@NonNull List<RouterTransaction> newBackstack, @Nullable ControllerChangeHandler changeHandler) {
         ThreadUtils.ensureMainThread();
 
+        List<RouterTransaction> oldTransactions = getBackstack();
         List<RouterTransaction> oldVisibleTransactions = getVisibleTransactions(backstack.iterator());
-
-        boolean newRootRequiresPush = !(newBackstack.size() > 0 && backstack.contains(newBackstack.get(0)));
 
         removeAllExceptVisibleAndUnowned();
         ensureOrderedTransactionIndices(newBackstack);
 
         backstack.setBackstack(newBackstack);
+
+        // Ensure all new controllers have a valid router set
         for (RouterTransaction transaction : backstack) {
             transaction.onAttachedToRouter();
+            setControllerRouter(transaction.controller);
         }
 
         if (newBackstack.size() > 0) {
             List<RouterTransaction> reverseNewBackstack = new ArrayList<>(newBackstack);
             Collections.reverse(reverseNewBackstack);
             List<RouterTransaction> newVisibleTransactions = getVisibleTransactions(reverseNewBackstack.iterator());
+            boolean newRootRequiresPush = !(newVisibleTransactions.size() > 0 && oldTransactions.contains(newVisibleTransactions.get(0)));
 
             boolean visibleTransactionsChanged = !backstacksAreEqual(newVisibleTransactions, oldVisibleTransactions);
             if (visibleTransactionsChanged) {
@@ -450,9 +453,22 @@ public abstract class Router {
                 }
             }
 
-            // Ensure all new controllers have a valid router set
-            for (RouterTransaction transaction : newBackstack) {
-                transaction.controller.setRouter(this);
+        }
+
+        // Destroy all old controllers that are no longer on the backstack. We don't do this when we initially
+        // set the backstack to prevent the possibility that they'll be destroyed before the controller
+        // change handler runs.
+        for (RouterTransaction oldTransaction : oldTransactions) {
+            boolean contains = false;
+            for (RouterTransaction newTransaction : newBackstack) {
+                if (oldTransaction.controller == newTransaction.controller) {
+                    contains = true;
+                    break;
+                }
+            }
+
+            if (!contains) {
+                oldTransaction.controller.destroy();
             }
         }
     }
@@ -555,7 +571,7 @@ public abstract class Router {
         changeListeners.clear();
 
         for (RouterTransaction transaction : backstack) {
-            transaction.controller.activityDestroyed(activity.isChangingConfigurations());
+            transaction.controller.activityDestroyed(activity);
 
             for (Router childRouter : transaction.controller.getChildRouters()) {
                 childRouter.onActivityDestroyed(activity);
@@ -564,7 +580,7 @@ public abstract class Router {
 
         for (int index = destroyingControllers.size() - 1; index >= 0; index--) {
             Controller controller = destroyingControllers.get(index);
-            controller.activityDestroyed(activity.isChangingConfigurations());
+            controller.activityDestroyed(activity);
 
             for (Router childRouter : controller.getChildRouters()) {
                 childRouter.onActivityDestroyed(activity);
@@ -753,7 +769,7 @@ public abstract class Router {
             throw new IllegalStateException("Trying to push a controller that has already been destroyed. (" + to.getClass().getSimpleName() + ")");
         }
 
-        final ChangeTransaction transaction = new ChangeTransaction(to, from, isPush, container, changeHandler, changeListeners);
+        final ChangeTransaction transaction = new ChangeTransaction(to, from, isPush, container, changeHandler, new ArrayList<>(changeListeners));
 
         if (pendingControllerChanges.size() > 0) {
             // If we already have changes queued up (awaiting full container attach), queue this one up as well so they don't happen
@@ -823,7 +839,7 @@ public abstract class Router {
         }
 
         final int childCount = container.getChildCount();
-        for (int i = 0; i < childCount; i++) {
+        for (int i = childCount - 1; i >= 0; i--) {
             final View child = container.getChildAt(i);
             if (!views.contains(child)) {
                 container.removeView(child);

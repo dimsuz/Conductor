@@ -98,17 +98,23 @@ public abstract class Controller {
         Constructor[] constructors = cls.getConstructors();
         Constructor bundleConstructor = getBundleConstructor(constructors);
 
+        Bundle args = bundle.getBundle(KEY_ARGS);
+        if (args != null) {
+            args.setClassLoader(cls.getClassLoader());
+        }
+
         Controller controller;
         try {
             if (bundleConstructor != null) {
-                Bundle args = bundle.getBundle(KEY_ARGS);
-                if (args != null) {
-                    args.setClassLoader(cls.getClassLoader());
-                }
                 controller = (Controller)bundleConstructor.newInstance(args);
             } else {
                 //noinspection ConstantConditions
                 controller = (Controller)getDefaultConstructor(constructors).newInstance();
+
+                // Restore the args that existed before the last process death
+                if (args != null) {
+                    controller.args.putAll(args);
+                }
             }
         } catch (Exception e) {
             throw new RuntimeException("An exception occurred while creating a new instance of " + className + ". " + e.getMessage(), e);
@@ -570,7 +576,7 @@ public abstract class Controller {
      * @param permission A permission this Controller has requested
      */
     public boolean shouldShowRequestPermissionRationale(@NonNull String permission) {
-        return false;
+        return Build.VERSION.SDK_INT >= 23 && getActivity().shouldShowRequestPermissionRationale(permission);
     }
 
     /**
@@ -789,8 +795,18 @@ public abstract class Controller {
         final Context context = router.getActivity();
 
         if (context != null && !isContextAvailable) {
+            List<LifecycleListener> listeners = new ArrayList<>(lifecycleListeners);
+            for (LifecycleListener lifecycleListener : listeners) {
+                lifecycleListener.preContextAvailable(this);
+            }
+
             isContextAvailable = true;
             onContextAvailable(context);
+
+            listeners = new ArrayList<>(lifecycleListeners);
+            for (LifecycleListener lifecycleListener : listeners) {
+                lifecycleListener.postContextAvailable(this, context);
+            }
         }
 
         for (Router childRouter : childRouters) {
@@ -836,15 +852,27 @@ public abstract class Controller {
         onActivityStopped(activity);
     }
 
-    final void activityDestroyed(boolean isChangingConfigurations) {
-        if (isChangingConfigurations) {
+    final void activityDestroyed(@NonNull Activity activity) {
+        if (activity.isChangingConfigurations()) {
             detach(view, true, false);
         } else {
             destroy(true);
         }
 
-        isContextAvailable = false;
-        onContextUnavailable();
+        if (isContextAvailable) {
+            List<LifecycleListener> listeners = new ArrayList<>(lifecycleListeners);
+            for (LifecycleListener lifecycleListener : listeners) {
+                lifecycleListener.preContextUnavailable(this, activity);
+            }
+
+            isContextAvailable = false;
+            onContextUnavailable();
+
+            listeners = new ArrayList<>(lifecycleListeners);
+            for (LifecycleListener lifecycleListener : listeners) {
+                lifecycleListener.postContextUnavailable(this);
+            }
+        }
     }
 
     private void attach(@NonNull View view) {
@@ -1016,6 +1044,21 @@ public abstract class Controller {
     }
 
     private void performDestroy() {
+        if (isContextAvailable) {
+            List<LifecycleListener> listeners = new ArrayList<>(lifecycleListeners);
+            for (LifecycleListener lifecycleListener : listeners) {
+                lifecycleListener.preContextUnavailable(this, getActivity());
+            }
+
+            isContextAvailable = false;
+            onContextUnavailable();
+
+            listeners = new ArrayList<>(lifecycleListeners);
+            for (LifecycleListener lifecycleListener : listeners) {
+                lifecycleListener.postContextUnavailable(this);
+            }
+        }
+
         if (!destroyed) {
             List<LifecycleListener> listeners = new ArrayList<>(lifecycleListeners);
             for (LifecycleListener lifecycleListener : listeners) {
@@ -1305,6 +1348,12 @@ public abstract class Controller {
 
         public void preDestroy(@NonNull Controller controller) { }
         public void postDestroy(@NonNull Controller controller) { }
+
+        public void preContextAvailable(@NonNull Controller controller) { }
+        public void postContextAvailable(@NonNull Controller controller, @NonNull Context context) { }
+
+        public void preContextUnavailable(@NonNull Controller controller, @NonNull Context context) { }
+        public void postContextUnavailable(@NonNull Controller controller) { }
 
         public void onSaveInstanceState(@NonNull Controller controller, @NonNull Bundle outState) { }
         public void onRestoreInstanceState(@NonNull Controller controller, @NonNull Bundle savedInstanceState) { }
